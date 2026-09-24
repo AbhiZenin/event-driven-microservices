@@ -1,0 +1,76 @@
+x-service: &service
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  environment:
+    DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/commerce
+    KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    REDIS_URL: redis://redis:6379/0
+  depends_on: [db, redpanda, redis]
+
+services:
+  orders:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args: { SERVICE: orders }
+    environment:
+      SERVICE: orders
+      PORT: 8001
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/commerce
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    ports: ["8001:8001"]
+
+  payments:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args: { SERVICE: payments }
+    environment:
+      SERVICE: payments
+      PORT: 8002
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    ports: ["8002:8002"]
+
+  inventory:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args: { SERVICE: inventory }
+    environment:
+      SERVICE: inventory
+      PORT: 8003
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    ports: ["8003:8003"]
+
+  notifications:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args: { SERVICE: notifications }
+    environment:
+      SERVICE: notifications
+      PORT: 8004
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    ports: ["8004:8004"]
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: commerce
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.18
+    command: redpanda start --overprovisioned --smp 1 --memory 512M --reserve-memory 0M --node-id 0 --check=false --kafka-addr 0.0.0.0:9092 --advertise-kafka-addr redpanda:9092
+    ports: ["9092:9092"]
