@@ -1,15 +1,108 @@
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: notifications }
+metadata:
+  name: notifications
+  namespace: event-platform
+  labels:
+    app: notifications
 spec:
   replicas: 1
-  selector: { matchLabels: { app: notifications } }
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: notifications
+
   template:
-    metadata: { labels: { app: notifications } }
+    metadata:
+      labels:
+        app: notifications
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+        prometheus.io/path: "/metrics"
+
     spec:
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: notifications
-          image: your-dockerhub/notifications:latest
+          image: ghcr.io/abhizenin/event-driven-microservices-notifications:latest
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8004
+
+          envFrom:
+            - configMapRef:
+                name: platform-config
+
           env:
-            - { name: SERVICE, value: notifications }
-            - { name: PORT, value: "8004" }
+            - name: SERVICE
+              value: notifications
+            - name: PORT
+              value: "8004"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifications
+  namespace: event-platform
+spec:
+  selector:
+    app: notifications
+  ports:
+    - name: http
+      port: 8004
+      targetPort: http

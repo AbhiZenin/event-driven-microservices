@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: inventory
+  name: gateway
   namespace: event-platform
   labels:
-    app: inventory
+    app: gateway
 spec:
   replicas: 2
 
@@ -16,15 +16,15 @@ spec:
 
   selector:
     matchLabels:
-      app: inventory
+      app: gateway
 
   template:
     metadata:
       labels:
-        app: inventory
+        app: gateway
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8003"
+        prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
 
     spec:
@@ -40,13 +40,13 @@ spec:
           type: RuntimeDefault
 
       containers:
-        - name: inventory
-          image: ghcr.io/abhizenin/event-driven-microservices-inventory:latest
+        - name: gateway
+          image: ghcr.io/abhizenin/event-driven-microservices-gateway:latest
           imagePullPolicy: IfNotPresent
 
           ports:
             - name: http
-              containerPort: 8003
+              containerPort: 8080
 
           envFrom:
             - configMapRef:
@@ -54,9 +54,22 @@ spec:
 
           env:
             - name: SERVICE
-              value: inventory
+              value: gateway
+
             - name: PORT
-              value: "8003"
+              value: "8080"
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: JWT_SECRET
+
+            - name: DEMO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: DEMO_PASSWORD
 
           readinessProbe:
             httpGet:
@@ -98,12 +111,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: inventory
+  name: gateway
   namespace: event-platform
 spec:
   selector:
-    app: inventory
+    app: gateway
+
   ports:
     - name: http
-      port: 8003
+      port: 8080
       targetPort: http
+
+  type: ClusterIP

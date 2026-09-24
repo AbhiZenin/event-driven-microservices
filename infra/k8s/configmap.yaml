@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: event-platform
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda:9092"
+  REDIS_URL: "redis://redis:6379/0"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo:4318/v1/traces"
+  MAX_EVENT_RETRIES: "3"
+
+  ORDERS_SERVICE_URL: "http://orders:8001"
+
+  JWT_EXPIRE_MINUTES: "60"
+  RATE_LIMIT_REQUESTS: "60"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+
+  DEMO_USER: "demo"
+
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"

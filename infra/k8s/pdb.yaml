@@ -1,0 +1,32 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+  namespace: event-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: inventory-pdb
+  namespace: event-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: inventory
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payments-pdb
+  namespace: event-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: payments
