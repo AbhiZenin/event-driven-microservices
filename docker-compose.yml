@@ -210,6 +210,20 @@ services:
 
 
 
+
+  tempo:
+    image: grafana/tempo:2.6.1
+
+    command:
+      - "-config.file=/etc/tempo.yml"
+
+    volumes:
+      - ./observability/tempo/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/var/tempo
+
+    restart: unless-stopped
+
+
   prometheus:
     image: prom/prometheus:v3.5.0
 
@@ -257,3 +271,5 @@ volumes:
   redpanda_data:
 
   grafana_data:
+
+  tempo_data:

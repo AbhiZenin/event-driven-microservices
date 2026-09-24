@@ -1,3 +1,4 @@
+from services.common.tracing import install_tracing
 from services.common.metrics import install_metrics
 import asyncio
 
@@ -22,6 +23,7 @@ app = FastAPI(
 )
 
 install_metrics(app, "inventory")
+install_tracing(app, "inventory")
 
 
 @app.get("/health")

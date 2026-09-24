@@ -1,3 +1,4 @@
+from services.common.tracing import install_tracing
 from services.common.metrics import install_metrics
 import asyncio
 from fastapi import FastAPI
@@ -6,6 +7,7 @@ from services.common.kafka import consumer
 app = FastAPI(title="Notifications Service")
 
 install_metrics(app, "notifications")
+install_tracing(app, "notifications")
 received = []
 
 @app.get("/health")

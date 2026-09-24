@@ -1,3 +1,4 @@
+from services.common.tracing import install_tracing, current_trace_context
 from services.common.metrics import install_metrics
 import asyncio
 import json
@@ -43,6 +44,7 @@ app = FastAPI(
 )
 
 install_metrics(app, "orders")
+install_tracing(app, "orders")
 
 
 # ============================================================
@@ -173,6 +175,7 @@ def create_order(
 
     event = EventEnvelope(
         event_type="OrderCreated",
+        trace_context=current_trace_context(),
         aggregate_id=order_id,
         payload={
             "sku":
