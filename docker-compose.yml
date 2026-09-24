@@ -84,6 +84,45 @@ services:
       start_period: 10s
 
 
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE: gateway
+
+    environment:
+      SERVICE: gateway
+      PORT: "8080"
+
+      ORDERS_SERVICE_URL: http://orders:8001
+
+      REDIS_URL: redis://redis:6379/0
+
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_EXPIRE_MINUTES: "60"
+
+      DEMO_USER: ${DEMO_USER:-demo}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo-password}
+
+      RATE_LIMIT_REQUESTS: "60"
+      RATE_LIMIT_WINDOW_SECONDS: "60"
+
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+      orders:
+        condition: service_started
+
+    restart: unless-stopped
+
+    ports:
+      - "8088:8080"
+
   orders:
     build:
       context: .
