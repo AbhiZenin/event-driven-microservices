@@ -2,27 +2,55 @@ services:
 
   db:
     image: postgres:16-alpine
+
     environment:
       POSTGRES_DB: commerce
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d commerce"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d commerce"
+        ]
       interval: 3s
       timeout: 3s
       retries: 10
       start_period: 5s
 
+
   redis:
     image: redis:7-alpine
+
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes"
+      ]
+
+    volumes:
+      - redis_data:/data
+
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ]
       interval: 3s
       timeout: 3s
       retries: 10
 
+
   redpanda:
     image: redpandadata/redpanda:v24.2.18
+
     command:
       - redpanda
       - start
@@ -40,12 +68,21 @@ services:
       - 0.0.0.0:9092
       - --advertise-kafka-addr
       - redpanda:9092
+
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
     healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health --exit-when-healthy >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "rpk cluster health --exit-when-healthy >/dev/null 2>&1 || exit 1"
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
+
 
   orders:
     build:
@@ -53,22 +90,34 @@ services:
       dockerfile: docker/Dockerfile
       args:
         SERVICE: orders
+
     environment:
       SERVICE: orders
       PORT: "8001"
+
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/commerce
+
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+
       REDIS_URL: redis://redis:6379/0
+
+      MAX_EVENT_RETRIES: "3"
+
     depends_on:
       db:
         condition: service_healthy
+
       redis:
         condition: service_healthy
+
       redpanda:
         condition: service_healthy
+
     restart: unless-stopped
+
     ports:
       - "8001:8001"
+
 
   payments:
     build:
@@ -76,19 +125,29 @@ services:
       dockerfile: docker/Dockerfile
       args:
         SERVICE: payments
+
     environment:
       SERVICE: payments
       PORT: "8002"
+
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+
       REDIS_URL: redis://redis:6379/0
+
+      MAX_EVENT_RETRIES: "3"
+
     depends_on:
       redis:
         condition: service_healthy
+
       redpanda:
         condition: service_healthy
+
     restart: unless-stopped
+
     ports:
       - "8002:8002"
+
 
   inventory:
     build:
@@ -96,19 +155,29 @@ services:
       dockerfile: docker/Dockerfile
       args:
         SERVICE: inventory
+
     environment:
       SERVICE: inventory
       PORT: "8003"
+
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+
       REDIS_URL: redis://redis:6379/0
+
+      MAX_EVENT_RETRIES: "3"
+
     depends_on:
       redis:
         condition: service_healthy
+
       redpanda:
         condition: service_healthy
+
     restart: unless-stopped
+
     ports:
       - "8003:8003"
+
 
   notifications:
     build:
@@ -116,16 +185,34 @@ services:
       dockerfile: docker/Dockerfile
       args:
         SERVICE: notifications
+
     environment:
       SERVICE: notifications
       PORT: "8004"
+
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+
       REDIS_URL: redis://redis:6379/0
+
+      MAX_EVENT_RETRIES: "3"
+
     depends_on:
       redis:
         condition: service_healthy
+
       redpanda:
         condition: service_healthy
+
     restart: unless-stopped
+
     ports:
       - "8004:8004"
+
+
+volumes:
+
+  postgres_data:
+
+  redis_data:
+
+  redpanda_data:

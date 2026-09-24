@@ -12,10 +12,12 @@ from services.common.kafka import (
     consumer,
     producer,
 )
+from services.common.retry import retry_or_dlq
 
 
 app = FastAPI(
-    title="Inventory Service"
+    title="Inventory Service",
+    version="1.0.0",
 )
 
 
@@ -27,9 +29,16 @@ def health():
     }
 
 
+# ============================================================
+# INVENTORY RESERVATION
+# ============================================================
+
 async def reserve_inventory():
     c = consumer(
-        "orders.events",
+        [
+            "orders.events",
+            "orders.events.retry",
+        ],
         "inventory-reservation",
     )
 
@@ -37,16 +46,17 @@ async def reserve_inventory():
 
     await c.start()
 
+    print(
+        "Inventory reservation consumer started"
+    )
+
     try:
         async for msg in c:
             event = EventEnvelope(
                 **msg.value
             )
 
-            if (
-                event.event_type
-                != "OrderCreated"
-            ):
+            if event.event_type != "OrderCreated":
                 await c.commit()
                 continue
 
@@ -56,30 +66,46 @@ async def reserve_inventory():
             )
 
             if not acquired:
+                print(
+                    "Skipping duplicate inventory event "
+                    f"{event.event_id}"
+                )
+
                 await c.commit()
                 continue
 
             try:
-                reserved = EventEnvelope(
-                    event_type=
-                        "InventoryReserved",
+                # ------------------------------------------------
+                # CONTROLLED TECHNICAL FAILURE
+                #
+                # Used only to test:
+                # retry 1 -> retry 2 -> retry 3 -> DLQ
+                # ------------------------------------------------
 
-                    aggregate_id=
-                        event.aggregate_id,
+                if event.payload.get(
+                    "simulate_inventory_error",
+                    False,
+                ):
+                    raise RuntimeError(
+                        "Simulated inventory infrastructure failure"
+                    )
 
+                # ------------------------------------------------
+                # SUCCESSFUL INVENTORY RESERVATION
+                # ------------------------------------------------
+
+                reserved_event = EventEnvelope(
+                    event_type="InventoryReserved",
+                    aggregate_id=event.aggregate_id,
                     payload={
                         "sku":
                             event.payload["sku"],
 
                         "quantity":
-                            event.payload[
-                                "quantity"
-                            ],
+                            event.payload["quantity"],
 
                         "amount":
-                            event.payload[
-                                "amount"
-                            ],
+                            event.payload["amount"],
 
                         "simulate_payment_failure":
                             event.payload.get(
@@ -94,7 +120,7 @@ async def reserve_inventory():
 
                 await p.send_and_wait(
                     "inventory.events",
-                    reserved.model_dump(),
+                    reserved_event.model_dump(),
                 )
 
                 await complete_event(
@@ -105,26 +131,48 @@ async def reserve_inventory():
                 await c.commit()
 
                 print(
-                    "Inventory reserved for "
+                    "Inventory reserved for order "
                     f"{event.aggregate_id}"
                 )
 
-            except Exception:
+            except Exception as exc:
                 await release_event(
                     "inventory-reserve",
                     event.event_id,
                 )
 
-                raise
+                target_topic = await retry_or_dlq(
+                    p,
+                    "orders.events",
+                    event,
+                    msg,
+                    exc,
+                )
+
+                await c.commit()
+
+                print(
+                    "Inventory reservation failed for "
+                    f"order {event.aggregate_id}. "
+                    f"Forwarded to {target_topic}. "
+                    f"Error: {exc}"
+                )
 
     finally:
         await c.stop()
         await p.stop()
 
 
+# ============================================================
+# SAGA COMPENSATION
+# ============================================================
+
 async def compensate_payment_failure():
     c = consumer(
-        "payments.events",
+        [
+            "payments.events",
+            "payments.events.retry",
+        ],
         "inventory-compensation",
     )
 
@@ -132,16 +180,17 @@ async def compensate_payment_failure():
 
     await c.start()
 
+    print(
+        "Inventory compensation consumer started"
+    )
+
     try:
         async for msg in c:
             event = EventEnvelope(
                 **msg.value
             )
 
-            if (
-                event.event_type
-                != "PaymentFailed"
-            ):
+            if event.event_type != "PaymentFailed":
                 await c.commit()
                 continue
 
@@ -151,25 +200,24 @@ async def compensate_payment_failure():
             )
 
             if not acquired:
+                print(
+                    "Skipping duplicate compensation event "
+                    f"{event.event_id}"
+                )
+
                 await c.commit()
                 continue
 
             try:
-                released = EventEnvelope(
-                    event_type=
-                        "InventoryReleased",
-
-                    aggregate_id=
-                        event.aggregate_id,
-
+                released_event = EventEnvelope(
+                    event_type="InventoryReleased",
+                    aggregate_id=event.aggregate_id,
                     payload={
                         "sku":
                             event.payload["sku"],
 
                         "quantity":
-                            event.payload[
-                                "quantity"
-                            ],
+                            event.payload["quantity"],
 
                         "status":
                             "RELEASED",
@@ -181,7 +229,7 @@ async def compensate_payment_failure():
 
                 await p.send_and_wait(
                     "inventory.events",
-                    released.model_dump(),
+                    released_event.model_dump(),
                 )
 
                 await complete_event(
@@ -192,22 +240,41 @@ async def compensate_payment_failure():
                 await c.commit()
 
                 print(
-                    "Inventory released for "
+                    "Inventory released for order "
                     f"{event.aggregate_id}"
                 )
 
-            except Exception:
+            except Exception as exc:
                 await release_event(
                     "inventory-release",
                     event.event_id,
                 )
 
-                raise
+                target_topic = await retry_or_dlq(
+                    p,
+                    "payments.events",
+                    event,
+                    msg,
+                    exc,
+                )
+
+                await c.commit()
+
+                print(
+                    "Inventory compensation failed for "
+                    f"order {event.aggregate_id}. "
+                    f"Forwarded to {target_topic}. "
+                    f"Error: {exc}"
+                )
 
     finally:
         await c.stop()
         await p.stop()
 
+
+# ============================================================
+# STARTUP
+# ============================================================
 
 @app.on_event("startup")
 async def startup():
