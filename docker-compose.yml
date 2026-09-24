@@ -209,6 +209,45 @@ services:
       - "8004:8004"
 
 
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+    depends_on:
+      - orders
+      - payments
+      - inventory
+      - notifications
+
+    ports:
+      - "9095:9090"
+
+    restart: unless-stopped
+
+
+  grafana:
+    image: grafana/grafana:12.1.1
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    depends_on:
+      - prometheus
+
+    ports:
+      - "3005:3000"
+
+    restart: unless-stopped
+
 volumes:
 
   postgres_data:
@@ -216,3 +255,5 @@ volumes:
   redis_data:
 
   redpanda_data:
+
+  grafana_data:

@@ -1,3 +1,4 @@
+from services.common.metrics import install_metrics
 import asyncio
 
 from fastapi import FastAPI
@@ -19,6 +20,8 @@ app = FastAPI(
     title="Inventory Service",
     version="1.0.0",
 )
+
+install_metrics(app, "inventory")
 
 
 @app.get("/health")

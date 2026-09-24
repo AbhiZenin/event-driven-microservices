@@ -1,3 +1,4 @@
+from services.common.metrics import install_metrics
 import asyncio
 
 from fastapi import FastAPI
@@ -16,6 +17,8 @@ from services.common.retry import retry_or_dlq
 
 
 app = FastAPI(title="Payments Service")
+
+install_metrics(app, "payments")
 
 
 @app.get("/health")

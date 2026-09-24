@@ -1,3 +1,4 @@
+from services.common.metrics import install_metrics
 import asyncio
 import json
 import time
@@ -40,6 +41,8 @@ app = FastAPI(
     title="Orders Service",
     version="1.0.0",
 )
+
+install_metrics(app, "orders")
 
 
 # ============================================================
