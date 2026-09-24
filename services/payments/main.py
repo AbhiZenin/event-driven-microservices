@@ -8,10 +8,15 @@ from services.common.idempotency import (
     complete_event,
     release_event,
 )
-from services.common.kafka import consumer, producer
+from services.common.kafka import (
+    consumer,
+    producer,
+)
 
 
-app = FastAPI(title="Payments Service")
+app = FastAPI(
+    title="Payments Service"
+)
 
 
 @app.get("/health")
@@ -22,9 +27,9 @@ def health():
     }
 
 
-async def consume_orders():
+async def consume_inventory_events():
     c = consumer(
-        "orders.events",
+        "inventory.events",
         "payments",
     )
 
@@ -34,7 +39,16 @@ async def consume_orders():
 
     try:
         async for msg in c:
-            event = EventEnvelope(**msg.value)
+            event = EventEnvelope(
+                **msg.value
+            )
+
+            if (
+                event.event_type
+                != "InventoryReserved"
+            ):
+                await c.commit()
+                continue
 
             acquired = await acquire_event(
                 "payments",
@@ -42,23 +56,81 @@ async def consume_orders():
             )
 
             if not acquired:
-                print(
-                    f"Skipping duplicate payment event "
-                    f"{event.event_id}"
-                )
-
                 await c.commit()
                 continue
 
             try:
-                payment_event = EventEnvelope(
-                    event_type="PaymentAuthorized",
-                    aggregate_id=event.aggregate_id,
-                    payload={
-                        "amount": event.payload["amount"],
-                        "status": "AUTHORIZED",
-                    },
+                should_fail = (
+                    event.payload.get(
+                        "simulate_payment_failure",
+                        False,
+                    )
                 )
+
+                if should_fail:
+                    payment_event = (
+                        EventEnvelope(
+                            event_type=
+                                "PaymentFailed",
+
+                            aggregate_id=
+                                event.aggregate_id,
+
+                            payload={
+                                "amount":
+                                    event.payload[
+                                        "amount"
+                                    ],
+
+                                "sku":
+                                    event.payload[
+                                        "sku"
+                                    ],
+
+                                "quantity":
+                                    event.payload[
+                                        "quantity"
+                                    ],
+
+                                "status":
+                                    "FAILED",
+
+                                "reason":
+                                    "SIMULATED_FAILURE",
+                            },
+                        )
+                    )
+
+                else:
+                    payment_event = (
+                        EventEnvelope(
+                            event_type=
+                                "PaymentAuthorized",
+
+                            aggregate_id=
+                                event.aggregate_id,
+
+                            payload={
+                                "amount":
+                                    event.payload[
+                                        "amount"
+                                    ],
+
+                                "sku":
+                                    event.payload[
+                                        "sku"
+                                    ],
+
+                                "quantity":
+                                    event.payload[
+                                        "quantity"
+                                    ],
+
+                                "status":
+                                    "AUTHORIZED",
+                            },
+                        )
+                    )
 
                 await p.send_and_wait(
                     "payments.events",
@@ -73,8 +145,8 @@ async def consume_orders():
                 await c.commit()
 
                 print(
-                    f"Processed payment for order "
-                    f"{event.aggregate_id}"
+                    f"{payment_event.event_type} "
+                    f"for {event.aggregate_id}"
                 )
 
             except Exception:
@@ -93,5 +165,5 @@ async def consume_orders():
 @app.on_event("startup")
 async def startup():
     asyncio.create_task(
-        consume_orders()
+        consume_inventory_events()
     )

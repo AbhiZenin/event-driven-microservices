@@ -8,10 +8,15 @@ from services.common.idempotency import (
     complete_event,
     release_event,
 )
-from services.common.kafka import consumer, producer
+from services.common.kafka import (
+    consumer,
+    producer,
+)
 
 
-app = FastAPI(title="Inventory Service")
+app = FastAPI(
+    title="Inventory Service"
+)
 
 
 @app.get("/health")
@@ -22,10 +27,10 @@ def health():
     }
 
 
-async def consume_orders():
+async def reserve_inventory():
     c = consumer(
         "orders.events",
-        "inventory",
+        "inventory-reservation",
     )
 
     p = await producer()
@@ -34,53 +39,166 @@ async def consume_orders():
 
     try:
         async for msg in c:
-            event = EventEnvelope(**msg.value)
+            event = EventEnvelope(
+                **msg.value
+            )
+
+            if (
+                event.event_type
+                != "OrderCreated"
+            ):
+                await c.commit()
+                continue
 
             acquired = await acquire_event(
-                "inventory",
+                "inventory-reserve",
                 event.event_id,
             )
 
             if not acquired:
-                print(
-                    f"Skipping duplicate inventory event "
-                    f"{event.event_id}"
-                )
-
                 await c.commit()
                 continue
 
             try:
-                inventory_event = EventEnvelope(
-                    event_type="InventoryReserved",
-                    aggregate_id=event.aggregate_id,
+                reserved = EventEnvelope(
+                    event_type=
+                        "InventoryReserved",
+
+                    aggregate_id=
+                        event.aggregate_id,
+
                     payload={
-                        "sku": event.payload["sku"],
-                        "quantity": event.payload["quantity"],
-                        "status": "RESERVED",
+                        "sku":
+                            event.payload["sku"],
+
+                        "quantity":
+                            event.payload[
+                                "quantity"
+                            ],
+
+                        "amount":
+                            event.payload[
+                                "amount"
+                            ],
+
+                        "simulate_payment_failure":
+                            event.payload.get(
+                                "simulate_payment_failure",
+                                False,
+                            ),
+
+                        "status":
+                            "RESERVED",
                     },
                 )
 
                 await p.send_and_wait(
                     "inventory.events",
-                    inventory_event.model_dump(),
+                    reserved.model_dump(),
                 )
 
                 await complete_event(
-                    "inventory",
+                    "inventory-reserve",
                     event.event_id,
                 )
 
                 await c.commit()
 
                 print(
-                    f"Reserved inventory for order "
+                    "Inventory reserved for "
                     f"{event.aggregate_id}"
                 )
 
             except Exception:
                 await release_event(
-                    "inventory",
+                    "inventory-reserve",
+                    event.event_id,
+                )
+
+                raise
+
+    finally:
+        await c.stop()
+        await p.stop()
+
+
+async def compensate_payment_failure():
+    c = consumer(
+        "payments.events",
+        "inventory-compensation",
+    )
+
+    p = await producer()
+
+    await c.start()
+
+    try:
+        async for msg in c:
+            event = EventEnvelope(
+                **msg.value
+            )
+
+            if (
+                event.event_type
+                != "PaymentFailed"
+            ):
+                await c.commit()
+                continue
+
+            acquired = await acquire_event(
+                "inventory-release",
+                event.event_id,
+            )
+
+            if not acquired:
+                await c.commit()
+                continue
+
+            try:
+                released = EventEnvelope(
+                    event_type=
+                        "InventoryReleased",
+
+                    aggregate_id=
+                        event.aggregate_id,
+
+                    payload={
+                        "sku":
+                            event.payload["sku"],
+
+                        "quantity":
+                            event.payload[
+                                "quantity"
+                            ],
+
+                        "status":
+                            "RELEASED",
+
+                        "reason":
+                            "PAYMENT_FAILED",
+                    },
+                )
+
+                await p.send_and_wait(
+                    "inventory.events",
+                    released.model_dump(),
+                )
+
+                await complete_event(
+                    "inventory-release",
+                    event.event_id,
+                )
+
+                await c.commit()
+
+                print(
+                    "Inventory released for "
+                    f"{event.aggregate_id}"
+                )
+
+            except Exception:
+                await release_event(
+                    "inventory-release",
                     event.event_id,
                 )
 
@@ -94,5 +212,9 @@ async def consume_orders():
 @app.on_event("startup")
 async def startup():
     asyncio.create_task(
-        consume_orders()
+        reserve_inventory()
+    )
+
+    asyncio.create_task(
+        compensate_payment_failure()
     )
