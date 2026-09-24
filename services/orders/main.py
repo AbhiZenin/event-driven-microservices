@@ -33,8 +33,24 @@ class OrderIn(BaseModel):
 
 @app.on_event("startup")
 def startup():
-    Base.metadata.create_all(engine)
+    retries = 10
 
+    for attempt in range(1, retries + 1):
+        try:
+            Base.metadata.create_all(engine)
+            print("Database connection established")
+            return
+        except OperationalError as exc:
+            if attempt == retries:
+                raise
+
+            print(
+                f"Database not ready. "
+                f"Retrying in 2 seconds "
+                f"({attempt}/{retries})"
+            )
+
+            time.sleep(2)
 @app.get("/health")
 def health():
     return {"status":"ok","service":"orders"}
